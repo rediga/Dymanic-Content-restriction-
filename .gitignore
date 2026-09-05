@@ -1,0 +1,12 @@
+.sfdx/
+.sf/
+.localdevserver/
+.vscode/
+.idea/
+node_modules/
+*.log
+.DS_Store
+illuminatedCloud/
+.apexcode/
+.env
+**/credentials.json
