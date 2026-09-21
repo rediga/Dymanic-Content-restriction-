@@ -1,13 +1,19 @@
 /**
- * Evaluates whether a file extension is restricted for a given object.
+ * Evaluates whether a file extension (or note type) is restricted for a given object.
  * Rules are stored in File_Extension_Restriction__mdt so admins can
  * block extensions per object without code changes.
  *
  * Example: Restrict .pdf uploads on Account only.
+ * Notes: use token `snote` for Enhanced Notes and `note` for classic Notes.
  */
 public with sharing class FileExtensionRestrictionService {
     private static final String DEFAULT_ERROR =
         'Files with extension .{extension} cannot be uploaded to {object} records.';
+    private static final String DEFAULT_NOTE_ERROR =
+        'Notes cannot be created on {object} records.';
+    private static final String ENHANCED_NOTE_TOKEN = 'snote';
+    private static final String CLASSIC_NOTE_TOKEN = 'note';
+    private static final String ENHANCED_NOTE_FILE_TYPE = 'SNOTE';
 
     @TestVisible
     private static Map<String, RestrictionRule> testRulesByObject;
@@ -26,7 +32,7 @@ public with sharing class FileExtensionRestrictionService {
 
     /**
      * Validates ContentDocumentLink rows before insert.
-     * Blocks links when the target object has a matching restricted extension.
+     * Blocks links when the target object has a matching restricted extension or note type.
      */
     public static void validateDocumentLinks(List<ContentDocumentLink> links) {
         if (links == null || links.isEmpty()) {
@@ -76,7 +82,7 @@ public with sharing class FileExtensionRestrictionService {
 
     /**
      * Validates ContentVersion rows when FirstPublishLocationId points at a record.
-     * Covers Files uploaded directly onto a record.
+     * Covers Files and Enhanced Notes uploaded directly onto a record.
      */
     public static void validateContentVersions(List<ContentVersion> versions) {
         if (versions == null || versions.isEmpty()) {
@@ -97,10 +103,45 @@ public with sharing class FileExtensionRestrictionService {
             }
 
             String objectApiName = version.FirstPublishLocationId.getSObjectType().getDescribe().getName();
-            String extension = resolveExtension(version.FileExtension, version.PathOnClient, version.Title);
+            String extension = resolveExtension(
+                version.FileExtension,
+                version.PathOnClient,
+                version.Title,
+                version.FileType
+            );
             String errorMessage = buildRestrictionError(objectApiName, extension, rulesByObject);
             if (String.isNotBlank(errorMessage)) {
                 version.addError(errorMessage);
+            }
+        }
+    }
+
+    /**
+     * Validates classic Note rows before insert.
+     * Blocks notes when the parent object rule includes the `note` token.
+     */
+    public static void validateNotes(List<Note> notes) {
+        if (notes == null || notes.isEmpty()) {
+            return;
+        }
+
+        Map<String, RestrictionRule> rulesByObject = getRulesByObject();
+        if (rulesByObject.isEmpty()) {
+            return;
+        }
+
+        for (Note noteRecord : notes) {
+            if (noteRecord == null || noteRecord.ParentId == null) {
+                continue;
+            }
+            if (!isRestrictableEntity(noteRecord.ParentId)) {
+                continue;
+            }
+
+            String objectApiName = noteRecord.ParentId.getSObjectType().getDescribe().getName();
+            String errorMessage = buildRestrictionError(objectApiName, CLASSIC_NOTE_TOKEN, rulesByObject);
+            if (String.isNotBlank(errorMessage)) {
+                noteRecord.addError(errorMessage);
             }
         }
     }
@@ -125,7 +166,15 @@ public with sharing class FileExtensionRestrictionService {
             return null;
         }
 
-        String template = String.isNotBlank(rule.errorMessage) ? rule.errorMessage : DEFAULT_ERROR;
+        String template;
+        if (String.isNotBlank(rule.errorMessage)) {
+            template = rule.errorMessage;
+        } else if (isNoteToken(normalizedExtension)) {
+            template = DEFAULT_NOTE_ERROR;
+        } else {
+            template = DEFAULT_ERROR;
+        }
+
         return template
             .replace('{extension}', normalizedExtension)
             .replace('{object}', objectApiName);
@@ -209,6 +258,10 @@ public with sharing class FileExtensionRestrictionService {
         return entityType != User.SObjectType && entityType != Group.SObjectType;
     }
 
+    private static Boolean isNoteToken(String extension) {
+        return CLASSIC_NOTE_TOKEN.equals(extension) || ENHANCED_NOTE_TOKEN.equals(extension);
+    }
+
     private static Map<Id, String> getLatestExtensionByDocumentId(Set<Id> documentIds) {
         Map<Id, String> extensionByDocumentId = new Map<Id, String>();
         if (documentIds == null || documentIds.isEmpty()) {
@@ -216,14 +269,19 @@ public with sharing class FileExtensionRestrictionService {
         }
 
         for (ContentVersion version : [
-            SELECT ContentDocumentId, FileExtension, PathOnClient, Title, IsLatest
+            SELECT ContentDocumentId, FileExtension, PathOnClient, Title, FileType, IsLatest
             FROM ContentVersion
             WHERE ContentDocumentId IN :documentIds
             AND IsLatest = TRUE
         ]) {
             extensionByDocumentId.put(
                 version.ContentDocumentId,
-                resolveExtension(version.FileExtension, version.PathOnClient, version.Title)
+                resolveExtension(
+                    version.FileExtension,
+                    version.PathOnClient,
+                    version.Title,
+                    version.FileType
+                )
             );
         }
         return extensionByDocumentId;
@@ -231,6 +289,22 @@ public with sharing class FileExtensionRestrictionService {
 
     @TestVisible
     static String resolveExtension(String fileExtension, String pathOnClient, String title) {
+        return resolveExtension(fileExtension, pathOnClient, title, null);
+    }
+
+    @TestVisible
+    static String resolveExtension(
+        String fileExtension,
+        String pathOnClient,
+        String title,
+        String fileType
+    ) {
+        if (String.isNotBlank(fileType)
+            && ENHANCED_NOTE_FILE_TYPE.equalsIgnoreCase(fileType.trim())
+        ) {
+            return ENHANCED_NOTE_TOKEN;
+        }
+
         String fromField = normalizeExtension(fileExtension);
         if (String.isNotBlank(fromField)) {
             return fromField;
