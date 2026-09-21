@@ -46,31 +46,6 @@ private class FileExtensionRestrictionServiceTest {
     }
 
     @IsTest
-    static void buildRestrictionError_blocksNoteTokens() {
-        Map<String, FileExtensionRestrictionService.RestrictionRule> rules =
-            new Map<String, FileExtensionRestrictionService.RestrictionRule>{
-                'account' => new FileExtensionRestrictionService.RestrictionRule(
-                    'account',
-                    new Set<String>{ 'note', 'snote' },
-                    'Notes cannot be created on {object} records.'
-                )
-            };
-
-        System.assertEquals(
-            'Notes cannot be created on Account records.',
-            FileExtensionRestrictionService.buildRestrictionError('Account', 'note', rules)
-        );
-        System.assertEquals(
-            'Notes cannot be created on Account records.',
-            FileExtensionRestrictionService.buildRestrictionError('Account', 'snote', rules)
-        );
-        System.assertEquals(
-            null,
-            FileExtensionRestrictionService.buildRestrictionError('Contact', 'note', rules)
-        );
-    }
-
-    @IsTest
     static void validateContentVersions_blocksPdfOnAccount() {
         Account account = [SELECT Id FROM Account LIMIT 1];
         Contact contact = [SELECT Id FROM Contact LIMIT 1];
@@ -121,54 +96,6 @@ private class FileExtensionRestrictionServiceTest {
             2,
             [SELECT COUNT() FROM ContentVersion WHERE Title IN ('Allowed Contact File', 'Allowed Account Doc')],
             'Non-restricted uploads should succeed'
-        );
-    }
-
-    @IsTest
-    static void validateContentVersions_blocksEnhancedNotesOnAccount() {
-        Account account = [SELECT Id FROM Account LIMIT 1];
-        Contact contact = [SELECT Id FROM Contact LIMIT 1];
-
-        FileExtensionRestrictionService.testRulesByObject =
-            new Map<String, FileExtensionRestrictionService.RestrictionRule>{
-                'account' => new FileExtensionRestrictionService.RestrictionRule(
-                    'account',
-                    new Set<String>{ 'snote' },
-                    'Notes cannot be created on {object} records.'
-                )
-            };
-
-        ContentVersion blockedNote = new ContentVersion(
-            Title = 'Blocked Account Note',
-            PathOnClient = 'Blocked Account Note.snote',
-            VersionData = Blob.valueOf('note-bytes'),
-            FirstPublishLocationId = account.Id
-        );
-        ContentVersion allowedOnContact = new ContentVersion(
-            Title = 'Allowed Contact Note',
-            PathOnClient = 'Allowed Contact Note.snote',
-            VersionData = Blob.valueOf('note-bytes'),
-            FirstPublishLocationId = contact.Id
-        );
-
-        Test.startTest();
-        try {
-            insert blockedNote;
-            System.assert(false, 'Enhanced Note on Account should fail');
-        } catch (DmlException ex) {
-            System.assert(
-                ex.getMessage().contains('Notes cannot be created'),
-                'Expected note restriction error, got: ' + ex.getMessage()
-            );
-        }
-
-        insert allowedOnContact;
-        Test.stopTest();
-
-        System.assertEquals(
-            1,
-            [SELECT COUNT() FROM ContentVersion WHERE Title = 'Allowed Contact Note'],
-            'Enhanced Notes on Contact should succeed'
         );
     }
 
@@ -239,52 +166,6 @@ private class FileExtensionRestrictionServiceTest {
     }
 
     @IsTest
-    static void validateNotes_blocksClassicNotesOnAccount() {
-        Account account = [SELECT Id FROM Account LIMIT 1];
-        Contact contact = [SELECT Id FROM Contact LIMIT 1];
-
-        FileExtensionRestrictionService.testRulesByObject =
-            new Map<String, FileExtensionRestrictionService.RestrictionRule>{
-                'account' => new FileExtensionRestrictionService.RestrictionRule(
-                    'account',
-                    new Set<String>{ 'note' },
-                    'Notes cannot be created on {object} records.'
-                )
-            };
-
-        Note blocked = new Note(
-            Title = 'Blocked Account Note',
-            Body = 'Should fail',
-            ParentId = account.Id
-        );
-        Note allowed = new Note(
-            Title = 'Allowed Contact Note',
-            Body = 'Should succeed',
-            ParentId = contact.Id
-        );
-
-        Test.startTest();
-        try {
-            insert blocked;
-            System.assert(false, 'Classic Note on Account should fail');
-        } catch (DmlException ex) {
-            System.assert(
-                ex.getMessage().contains('Notes cannot be created'),
-                'Expected note restriction error, got: ' + ex.getMessage()
-            );
-        }
-
-        insert allowed;
-        Test.stopTest();
-
-        System.assertEquals(
-            1,
-            [SELECT COUNT() FROM Note WHERE Title = 'Allowed Contact Note'],
-            'Classic Notes on Contact should succeed'
-        );
-    }
-
-    @IsTest
     static void resolveExtension_fallsBackToFileName() {
         System.assertEquals(
             'pdf',
@@ -297,18 +178,6 @@ private class FileExtensionRestrictionServiceTest {
         System.assertEquals(
             'docx',
             FileExtensionRestrictionService.resolveExtension('DOCX', 'ignored.txt', 'ignored.csv')
-        );
-    }
-
-    @IsTest
-    static void resolveExtension_detectsEnhancedNotesFromFileType() {
-        System.assertEquals(
-            'snote',
-            FileExtensionRestrictionService.resolveExtension(null, null, 'Meeting Notes', 'SNOTE')
-        );
-        System.assertEquals(
-            'snote',
-            FileExtensionRestrictionService.resolveExtension('snote', 'Meeting Notes.snote', null, null)
         );
     }
 }

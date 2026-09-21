@@ -8,7 +8,6 @@
     <types>
         <members>ContentDocumentLinkTrigger</members>
         <members>ContentVersionTrigger</members>
-        <members>NoteTrigger</members>
         <name>ApexTrigger</name>
     </types>
     <types>
@@ -17,7 +16,6 @@
     </types>
     <types>
         <members>File_Extension_Restriction.Account_PDF</members>
-        <members>File_Extension_Restriction.Account_Notes</members>
         <name>CustomMetadata</name>
     </types>
     <version>62.0</version>
